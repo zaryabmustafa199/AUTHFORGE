@@ -1,158 +1,296 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { Shield, Users, Activity, Search, RefreshCw, AlertCircle, CheckCircle, Power } from 'lucide-react';
 import api from '../lib/api';
 
 const Admin = () => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'users' | 'audit'>('users');
   
-  // Users State
+  // Data States
   const [users, setUsers] = useState<any[]>([]);
-  const [usersPage, setUsersPage] = useState(1);
-  const [usersTotal, setUsersTotal] = useState(0);
-
-  // Audit Logs State
   const [logs, setLogs] = useState<any[]>([]);
-  const [logsPage, setLogsPage] = useState(1);
-  const [logsTotal, setLogsTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  
+  // Pagination States
+  const [userPage, setUserPage] = useState(1);
+  const [userTotal, setUserTotal] = useState(0);
+  const [logPage, setLogPage] = useState(1);
+  const [logTotal, setLogTotal] = useState(0);
 
-  const fetchUsers = async () => {
+  const fetchData = async () => {
+    setLoading(true);
+    setError('');
     try {
-      const res = await api.get(`/users/admin/users?page=${usersPage}&size=10`);
-      setUsers(res.data.items);
-      setUsersTotal(res.data.total);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const fetchLogs = async () => {
-    try {
-      const res = await api.get(`/users/admin/audit-logs?page=${logsPage}&size=10`);
-      setLogs(res.data.items);
-      setLogsTotal(res.data.total);
-    } catch (err) {
-      console.error(err);
+      if (activeTab === 'users') {
+        const res = await api.get(`/users/admin/users?page=${userPage}&per_page=10`);
+        setUsers(res.data.users || []);
+        setUserTotal(res.data.total || 0);
+      } else {
+        const res = await api.get(`/users/admin/audit-logs?page=${logPage}&per_page=15`);
+        setLogs(res.data.logs || []);
+        setLogTotal(res.data.total || 0);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to load data');
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (activeTab === 'users') fetchUsers();
-    else fetchLogs();
-  }, [activeTab, usersPage, logsPage]);
+    fetchData();
+  }, [activeTab, userPage, logPage]);
 
   const handleRoleChange = async (userId: string, newRoleId: number) => {
     try {
-      await api.patch(`/users/admin/users/${userId}/role`, { role_id: newRoleId });
-      fetchUsers(); // Refresh
-    } catch (err) {
-      console.error('Failed to change role', err);
-      alert('Failed to change role. Ensure you are not demoting yourself.');
+      await api.patch(`/users/admin/users/${userId}`, { role_id: newRoleId });
+      fetchData(); // Refresh list
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to update role');
     }
   };
 
+  const handleStatusToggle = async (userId: string, currentStatus: boolean) => {
+    try {
+      await api.patch(`/users/admin/users/${userId}`, { is_active: !currentStatus });
+      fetchData(); // Refresh list
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to update status');
+    }
+  };
+
+  const renderUserRoleBadge = (roleName: string) => {
+    if (roleName === 'admin') return <span className="badge badge-primary"><Shield size={10}/>Admin</span>;
+    if (roleName === 'moderator') return <span className="badge badge-warning"><Shield size={10}/>Mod</span>;
+    return <span className="badge badge-muted">User</span>;
+  };
+
   return (
-    <div className="flex-col gap-6">
-      <div style={{ marginBottom: '24px' }}>
-        <h2>Admin Panel</h2>
-        <p>Manage users and view system security logs.</p>
-      </div>
-
-      <div className="flex gap-4" style={{ marginBottom: '24px', borderBottom: '1px solid var(--border-light)', paddingBottom: '16px' }}>
-        <button 
-          className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setActiveTab('users')}
-        >
-          User Directory
-        </button>
-        <button 
-          className={`btn ${activeTab === 'audit' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setActiveTab('audit')}
-        >
-          Audit Logs
+    <div className="animate-fade-in">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h2>Admin Control Center</h2>
+          <p style={{ marginTop: 6 }}>Manage users, roles, and view system audit logs.</p>
+        </div>
+        <button onClick={fetchData} className="btn btn-secondary btn-sm">
+          <RefreshCw size={14} className={loading ? 'spin' : ''} />
+          Refresh
         </button>
       </div>
 
-      {activeTab === 'users' && (
-        <div className="card">
-          <h3 style={{ marginBottom: '16px' }}>Users ({usersTotal})</h3>
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Email</th>
-                  <th>Name</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map(u => (
-                  <tr key={u.id}>
-                    <td style={{ fontWeight: 500 }}>{u.email}</td>
-                    <td>{u.full_name || '-'}</td>
-                    <td>
-                      <span className={`badge ${u.role_id === 3 ? 'badge-primary' : u.role_id === 2 ? 'badge-warning' : 'badge-success'}`}>
-                        {u.role_id === 3 ? 'Admin' : u.role_id === 2 ? 'Moderator' : 'User'}
-                      </span>
-                    </td>
-                    <td>{u.is_active ? 'Active' : 'Inactive'}</td>
-                    <td>
-                      <select 
-                        value={u.role_id}
-                        onChange={(e) => handleRoleChange(u.id, parseInt(e.target.value))}
-                        className="form-input"
-                        style={{ padding: '6px 12px', fontSize: '0.85rem' }}
-                      >
-                        <option value={1}>Make User</option>
-                        <option value={2}>Make Moderator</option>
-                        <option value={3}>Make Admin</option>
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex justify-between items-center" style={{ marginTop: '16px' }}>
-            <button className="btn btn-secondary" disabled={usersPage === 1} onClick={() => setUsersPage(p => p - 1)}>Previous</button>
-            <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Page {usersPage}</span>
-            <button className="btn btn-secondary" disabled={usersPage * 10 >= usersTotal} onClick={() => setUsersPage(p => p + 1)}>Next</button>
-          </div>
+      {error && (
+        <div className="alert alert-error mb-6">
+          <AlertCircle size={15} style={{ flexShrink: 0 }} />
+          {error}
         </div>
       )}
 
-      {activeTab === 'audit' && (
-        <div className="card">
-          <h3 style={{ marginBottom: '16px' }}>Security Audit Logs ({logsTotal})</h3>
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Action</th>
-                  <th>User ID</th>
-                  <th>IP Address</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map(log => (
-                  <tr key={log.id}>
-                    <td style={{ fontSize: '0.9rem' }}>{new Date(log.created_at).toLocaleString()}</td>
-                    <td><span className="badge badge-warning">{log.action}</span></td>
-                    <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{log.user_id || 'System/Anonymous'}</td>
-                    <td style={{ fontSize: '0.9rem' }}>{log.ip_address}</td>
+      {/* Custom Tabs */}
+      <div className="tab-bar" style={{ maxWidth: 300 }}>
+        <button 
+          className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('users'); setUserPage(1); }}
+        >
+          <div className="flex justify-center items-center gap-2">
+            <Users size={16} /> Users
+          </div>
+        </button>
+        <button 
+          className={`tab-btn ${activeTab === 'audit' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('audit'); setLogPage(1); }}
+        >
+          <div className="flex justify-center items-center gap-2">
+            <Activity size={16} /> Audit Logs
+          </div>
+        </button>
+      </div>
+
+      <div className="card">
+        {loading ? (
+          <div className="flex justify-center items-center" style={{ minHeight: 300 }}>
+            <div className="spinner" />
+          </div>
+        ) : activeTab === 'users' ? (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h3 style={{ fontSize: '1.1rem' }}>User Management <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 400 }}>({userTotal} total)</span></h3>
+            </div>
+            
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Status</th>
+                    <th>Role</th>
+                    <th>Joined</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {users.length === 0 ? (
+                    <tr><td colSpan={5} style={{ textAlign: 'center' }}>No users found</td></tr>
+                  ) : (
+                    users.map(u => (
+                      <tr key={u.id}>
+                        <td>
+                          <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                            {u.full_name || u.username || 'Unnamed User'}
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{u.email}</div>
+                        </td>
+                        <td>
+                          {u.is_active 
+                            ? <span className="badge badge-success"><CheckCircle size={10}/>Active</span>
+                            : <span className="badge badge-danger"><AlertCircle size={10}/>Inactive</span>
+                          }
+                        </td>
+                        <td>
+                          {renderUserRoleBadge(u.role?.name || 'user')}
+                        </td>
+                        <td>{new Date(u.created_at).toLocaleDateString()}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div className="flex justify-end items-center gap-2">
+                            <select 
+                              className="form-input" 
+                              style={{ width: 'auto', padding: '4px 8px', fontSize: '0.8rem', height: 32 }}
+                              value={u.role_id}
+                              onChange={(e) => handleRoleChange(u.id, parseInt(e.target.value))}
+                              disabled={u.id === user?.id} // Can't change own role
+                            >
+                              <option value={1}>User</option>
+                              <option value={2}>Moderator</option>
+                              <option value={3}>Admin</option>
+                            </select>
+                            
+                            <button
+                              onClick={() => handleStatusToggle(u.id, u.is_active)}
+                              className={`btn btn-sm ${u.is_active ? 'btn-danger' : 'btn-success'}`}
+                              style={{ height: 32, padding: '0 12px' }}
+                              disabled={u.id === user?.id} // Can't deactivate self
+                              title={u.is_active ? "Deactivate user" : "Activate user"}
+                            >
+                              <Power size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            
+            {/* Pagination Controls */}
+            {userTotal > 10 && (
+              <div className="flex justify-between items-center mt-6">
+                <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                  Showing {(userPage - 1) * 10 + 1} to {Math.min(userPage * 10, userTotal)} of {userTotal}
+                </span>
+                <div className="flex gap-2">
+                  <button 
+                    className="btn btn-secondary btn-sm" 
+                    disabled={userPage === 1}
+                    onClick={() => setUserPage(p => p - 1)}
+                  >
+                    Previous
+                  </button>
+                  <button 
+                    className="btn btn-secondary btn-sm" 
+                    disabled={userPage * 10 >= userTotal}
+                    onClick={() => setUserPage(p => p + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-          <div className="flex justify-between items-center" style={{ marginTop: '16px' }}>
-            <button className="btn btn-secondary" disabled={logsPage === 1} onClick={() => setLogsPage(p => p - 1)}>Previous</button>
-            <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Page {logsPage}</span>
-            <button className="btn btn-secondary" disabled={logsPage * 10 >= logsTotal} onClick={() => setLogsPage(p => p + 1)}>Next</button>
+        ) : (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h3 style={{ fontSize: '1.1rem' }}>System Audit Logs <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 400 }}>({logTotal} total)</span></h3>
+            </div>
+            
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Action</th>
+                    <th>User ID</th>
+                    <th>IP Address</th>
+                    <th>Metadata</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.length === 0 ? (
+                    <tr><td colSpan={5} style={{ textAlign: 'center' }}>No audit logs found</td></tr>
+                  ) : (
+                    logs.map(log => (
+                      <tr key={log.id}>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          {new Date(log.created_at).toLocaleString(undefined, { 
+                            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                          })}
+                        </td>
+                        <td>
+                          <span className="badge badge-muted" style={{ fontFamily: 'monospace' }}>
+                            {log.action}
+                          </span>
+                        </td>
+                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          {log.user_id ? log.user_id.split('-')[0] + '...' : 'System'}
+                        </td>
+                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                          {log.ip_address || '—'}
+                        </td>
+                        <td>
+                          <div style={{ 
+                            background: 'var(--bg-base)', padding: '6px 10px', 
+                            borderRadius: 'var(--radius-sm)', fontSize: '0.75rem',
+                            fontFamily: 'monospace', color: 'var(--text-secondary)',
+                            maxWidth: 300, overflowX: 'auto', whiteSpace: 'nowrap'
+                          }}>
+                            {JSON.stringify(log.metadata_info)}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            {logTotal > 15 && (
+              <div className="flex justify-between items-center mt-6">
+                <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                  Showing {(logPage - 1) * 15 + 1} to {Math.min(logPage * 15, logTotal)} of {logTotal}
+                </span>
+                <div className="flex gap-2">
+                  <button 
+                    className="btn btn-secondary btn-sm" 
+                    disabled={logPage === 1}
+                    onClick={() => setLogPage(p => p - 1)}
+                  >
+                    Previous
+                  </button>
+                  <button 
+                    className="btn btn-secondary btn-sm" 
+                    disabled={logPage * 15 >= logTotal}
+                    onClick={() => setLogPage(p => p + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };

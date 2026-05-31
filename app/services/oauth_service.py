@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from httpx import HTTPStatusError
+import re
 
 from app.repositories.user_repo import UserRepository
 from app.services.token_service import TokenService
@@ -213,9 +214,19 @@ class OAuthService:
             )
 
         # Scenario 3: Brand new user — create from Google info
+        import secrets as _secrets
         from app.models.user import User
+
+        # Auto-generate a unique username from email prefix
+        email_prefix = re.sub(r'[^a-z0-9_]', '', email.split('@')[0].lower())
+        if not email_prefix:
+            email_prefix = "user"
+        # Append 4 random digits to prevent collisions
+        auto_username = f"{email_prefix[:40]}{_secrets.randbelow(9000) + 1000}"
+
         new_user = User(
             email=email,
+            username=auto_username,
             full_name=full_name,
             hashed_password=None,  # No password for OAuth users
             oauth_provider="google",

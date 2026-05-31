@@ -24,6 +24,7 @@ from app.utils.security import verify_password, get_password_hash, generate_otp,
 from app.utils.logging import get_logger
 from app.models.user import User
 from datetime import datetime, timezone
+import json
 
 logger = get_logger(__name__)
 
@@ -111,45 +112,56 @@ class AuthService:
         """
         existing_user = await self.user_repo.get_by_email(user_in.email)
         if existing_user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered",
-            )
+            if existing_user.is_verified:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already registered",
+                )
+            else:
+                await self.user_repo.delete(existing_user)
 
+        existing_username = await self.user_repo.get_by_username(user_in.username)
+        if existing_username:
+            if existing_username.is_verified:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Username already taken",
+                )
+            else:
+                await self.user_repo.delete(existing_username)
+
+        # Store the signup payload in Redis instead of DB
         try:
-            user = await self.user_repo.create(user_in)
-        except IntegrityError:
+            # model_dump_json handles datetime and UUID serialization
+            user_data_json = user_in.model_dump_json()
+            await self.redis.setex(f"signup:{user_in.email}", OTP_TTL, user_data_json)
+        except Exception as exc:
+            logger.error("Redis error storing signup data", extra={"email": user_in.email, "error": str(exc)})
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service temporarily unavailable",
             )
-
-        # Audit: signup
-        await self.audit.log(
-            action=SIGNUP,
-            user_id=user.id,
-            ip_address=ip_address,
-            metadata_info={"email": user.email},
-        )
 
         # Generate and store hashed OTP in Redis
         try:
             otp = generate_otp()
             hashed_otp = get_password_hash(otp)
-            await self.redis.setex(f"verify:{user.id}", OTP_TTL, hashed_otp)
+            await self.redis.setex(f"verify:{user_in.email}", OTP_TTL, hashed_otp)
         except RedisError as exc:
-            logger.error("Redis error storing OTP", extra={"user_id": str(user.id), "error": str(exc)})
-            logger.warning("User created but verification OTP could not be stored", extra={"user_id": str(user.id)})
-            return user
+            logger.error("Redis error storing OTP", extra={"email": user_in.email, "error": str(exc)})
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service temporarily unavailable",
+            )
 
         try:
             from app.workers.tasks import send_verification_email
-            send_verification_email.delay(user.email, otp)
-            logger.info("Verification email queued", extra={"user_id": str(user.id), "email": user.email})
+            send_verification_email.delay(user_in.email, otp)
+            logger.info("Verification email queued", extra={"email": user_in.email})
         except Exception as exc:
-            logger.error("Failed to queue verification email", extra={"user_id": str(user.id), "error": str(exc)})
+            logger.error("Failed to queue verification email", extra={"email": user_in.email, "error": str(exc)})
 
-        return user
+        return None
 
     # ------------------------------------------------------------------
     # Login
@@ -337,52 +349,115 @@ class AuthService:
     async def verify_email(self, email: str, otp: str, ip_address: str = None) -> None:
         """
         Verifies a user's email by validating the OTP stored in Redis.
-        Deletes the OTP on success to prevent reuse.
+        Includes a 5-attempt limit to prevent brute forcing.
+        On success, creates the user in the database.
         """
-        user = await self.user_repo.get_by_email(email)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found",
-            )
-
-        if user.is_verified:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already verified",
-            )
-
+        # 1. Check brute force attempts
+        attempts_key = f"verify_attempts:{email}"
         try:
-            stored_hash = await self.redis.get(f"verify:{user.id}")
+            attempts = await self.redis.get(attempts_key)
+            if attempts and int(attempts) >= 5:
+                await self.redis.delete(f"verify:{email}")
+                await self.redis.delete(f"signup:{email}")
+                await self.redis.delete(attempts_key)
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too many incorrect attempts. Registration cancelled. Please sign up again.",
+                )
+        except RedisError:
+            pass
+
+        # 2. Retrieve stored OTP and Signup Data
+        try:
+            stored_hash = await self.redis.get(f"verify:{email}")
+            user_data_json = await self.redis.get(f"signup:{email}")
         except RedisError as exc:
-            logger.error("Redis error reading OTP", extra={"user_id": str(user.id), "error": str(exc)})
+            logger.error("Redis error reading verification data", extra={"email": email, "error": str(exc)})
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Service temporarily unavailable",
             )
 
-        if not stored_hash:
+        if not stored_hash or not user_data_json:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OTP expired or not found. Please request a new one.",
+                detail="OTP expired or not found. Please request a new one by signing up again.",
             )
 
+        # 3. Verify OTP
         if not verify_password(otp, stored_hash):
+            try:
+                count = await self.redis.incr(attempts_key)
+                if count == 1:
+                    await self.redis.expire(attempts_key, OTP_TTL)
+                if count >= 5:
+                    await self.redis.delete(f"verify:{email}")
+                    await self.redis.delete(f"signup:{email}")
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail="Too many incorrect attempts. Registration cancelled. Please sign up again.",
+                    )
+            except RedisError:
+                pass
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid OTP",
             )
 
+        # 4. Success: Create User in Database
         try:
-            await self.redis.delete(f"verify:{user.id}")
+            user_dict = json.loads(user_data_json)
+            user_in = UserCreate(**user_dict)
+            
+            # Double check if user already exists (race condition check)
+            existing_user = await self.user_repo.get_by_email(user_in.email)
+            if existing_user:
+                if existing_user.is_verified:
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Email already verified")
+                else:
+                    await self.user_repo.delete(existing_user)
+                    
+            existing_username = await self.user_repo.get_by_username(user_in.username)
+            if existing_username:
+                 if existing_username.is_verified:
+                     raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Username already taken")
+                 else:
+                     await self.user_repo.delete(existing_username)
+                     
+            user = await self.user_repo.create(user_in)
+            
+            # Set to verified
+            user.is_verified = True
+            user = await self.user_repo.update(user)
+        except IntegrityError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Database error: Email or username already registered",
+            )
+        except Exception as exc:
+            logger.error("Error creating user during verification", extra={"email": email, "error": str(exc)})
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal server error during user creation",
+            )
+
+        # 5. Clean up Redis
+        try:
+            await self.redis.delete(f"verify:{email}")
+            await self.redis.delete(f"signup:{email}")
+            await self.redis.delete(attempts_key)
         except RedisError:
             pass
 
-        user.is_verified = True
-        await self.user_repo.update(user)
-
+        # 6. Audit
+        await self.audit.log(
+            action=SIGNUP,
+            user_id=user.id,
+            ip_address=ip_address,
+            metadata_info={"email": user.email},
+        )
         await self.audit.log(action=EMAIL_VERIFIED, user_id=user.id, ip_address=ip_address)
-        logger.info("Email verified", extra={"user_id": str(user.id)})
+        logger.info("User created and email verified", extra={"user_id": str(user.id)})
 
     # ------------------------------------------------------------------
     # Forgot Password
@@ -441,6 +516,12 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid request",
+            )
+
+        if verify_password(new_password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You cannot choose your current password.",
             )
 
         try:

@@ -38,7 +38,13 @@ def rate_limit(key_prefix: str, max_requests: int, window_seconds: int) -> Calla
         redis: Redis = Depends(get_redis),
     ) -> None:
         # Build key from prefix + client IP
-        client_ip = request.client.host if request.client else "unknown"
+        # Trust X-Forwarded-For if behind a proxy
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
+        else:
+            client_ip = request.client.host if request.client else "unknown"
+            
         redis_key = f"ratelimit:{key_prefix}:{client_ip}"
 
         try:

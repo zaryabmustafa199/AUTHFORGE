@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Shield, Mail, AlertCircle, CheckCircle } from 'lucide-react';
 import api from '../lib/api';
 
 const ForgotPassword = () => {
@@ -12,12 +13,11 @@ const ForgotPassword = () => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
-
     try {
       await api.post('/auth/forgot-password', { email });
       setSuccess(true);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to request password reset');
+      setError(err.response?.data?.detail || 'Failed to send reset email');
     } finally {
       setIsLoading(false);
     }
@@ -25,53 +25,70 @@ const ForgotPassword = () => {
 
   if (success) {
     return (
-      <div className="flex justify-center items-center" style={{ minHeight: '60vh' }}>
-        <div className="card" style={{ maxWidth: '400px', width: '100%', textAlign: 'center' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '50%', backgroundColor: 'var(--accent-success)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto' }}>
-            <span style={{ color: '#1e4620', fontSize: '24px' }}>✓</span>
+      <div className="auth-page">
+        <div className="auth-card animate-fade-in">
+          <div className="card text-center">
+            <div style={{
+              width: 56, height: 56, borderRadius: '50%',
+              background: 'var(--success-bg)', border: '1px solid rgba(16,185,129,0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px'
+            }}>
+              <Mail size={26} color="var(--success)" />
+            </div>
+            <h2>Check your inbox</h2>
+            <p style={{ marginTop: 8, marginBottom: 24 }}>
+              If an account exists for <strong style={{ color: 'var(--text-primary)' }}>{email}</strong>, a reset link has been sent.
+            </p>
+            <Link to="/login" className="btn btn-primary w-full">Return to Login</Link>
           </div>
-          <h2>Check your email</h2>
-          <p style={{ marginTop: '8px', marginBottom: '24px' }}>
-            If an account exists for <strong>{email}</strong>, we've sent instructions to reset your password.
-          </p>
-          <Link to="/login" className="btn btn-primary w-full">
-            Return to Login
-          </Link>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex justify-center items-center" style={{ minHeight: '60vh' }}>
-      <div className="card" style={{ maxWidth: '400px', width: '100%' }}>
-        <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-          <h2>Reset Password</h2>
-          <p>Enter your email to receive a reset code.</p>
-        </div>
-
-        {error && <div className="error-text" style={{ marginBottom: '16px', textAlign: 'center', padding: '8px', backgroundColor: '#fdecea', borderRadius: '6px' }}>{error}</div>}
-
-        <form onSubmit={handleSubmit}>
-          <div className="form-group" style={{ marginBottom: '24px' }}>
-            <label className="form-label">Email Address</label>
-            <input 
-              type="email" 
-              className="form-input" 
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required 
-            />
+    <div className="auth-page">
+      <div className="auth-card animate-fade-in">
+        <div className="card">
+          <div className="auth-logo">
+            <Shield size={22} color="#fff" strokeWidth={2.5} />
+          </div>
+          <div className="text-center mb-6">
+            <h2>Reset password</h2>
+            <p style={{ marginTop: 6, fontSize: '0.9rem' }}>Enter your email to receive a reset code</p>
           </div>
 
-          <button type="submit" className="btn btn-primary w-full" disabled={isLoading}>
-            {isLoading ? 'Sending...' : 'Send Reset Link'}
-          </button>
-        </form>
+          {error && (
+            <div className="alert alert-error">
+              <AlertCircle size={15} style={{ flexShrink: 0 }} />
+              {error}
+            </div>
+          )}
 
-        <p style={{ textAlign: 'center', marginTop: '24px', fontSize: '0.9rem' }}>
-          Remember your password? <Link to="/login" style={{ color: 'var(--text-primary)', fontWeight: '600', textDecoration: 'none' }}>Sign In</Link>
-        </p>
+          <form onSubmit={handleSubmit}>
+            <div className="form-group" style={{ marginBottom: 24 }}>
+              <label className="form-label">Email Address</label>
+              <input
+                type="email"
+                className="form-input"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+            <button type="submit" className="btn btn-primary w-full" disabled={isLoading}>
+              {isLoading ? 'Sending...' : 'Send Reset Code'}
+            </button>
+          </form>
+
+          <p className="text-center mt-6" style={{ fontSize: '0.875rem' }}>
+            <Link to="/login" style={{ color: 'var(--accent-hover)', fontWeight: 600, textDecoration: 'none' }}>
+              ← Back to login
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );

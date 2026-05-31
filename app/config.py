@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_SIGNUP: int = 3
     RATE_LIMIT_WINDOW_SECONDS: int = 60
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000"]  # Restrict by default
+    FRONTEND_URL: str = "http://localhost:5175"
 
     model_config = SettingsConfigDict(
         env_file=".env",

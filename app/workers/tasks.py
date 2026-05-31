@@ -44,6 +44,8 @@ def send_verification_email(self, email: str, otp: str):
         raise self.retry(exc=exc, countdown=10 * (2 ** self.request.retries))
 
 
+from app.config import settings
+
 @shared_task(
     name="app.workers.tasks.send_reset_email",
     bind=True,
@@ -52,18 +54,23 @@ def send_verification_email(self, email: str, otp: str):
 )
 def send_reset_email(self, email: str, token: str):
     """
-    Sends a password reset token.
+    Sends a password reset token as a magic link.
     Retries up to 3 times on failure with exponential backoff.
     """
+    import urllib.parse
+    encoded_email = urllib.parse.quote(email)
+    encoded_token = urllib.parse.quote(token)
+    reset_link = f"{settings.FRONTEND_URL}/reset-password?email={encoded_email}&token={encoded_token}"
+    
     subject = "Reset your AuthForge password"
     html_body = f"""
     <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
         <h2 style="color: #1a1a2e;">Password Reset Request</h2>
-        <p>You requested a password reset. Use the token below to reset your password.</p>
-        <div style="background-color: #f0f0f5; padding: 16px; border-radius: 8px; margin: 24px 0;">
-            <code style="font-size: 14px; word-break: break-all;">{token}</code>
+        <p>You requested a password reset. Click the button below to choose a new password.</p>
+        <div style="margin: 32px 0; text-align: center;">
+            <a href="{reset_link}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password</a>
         </div>
-        <p style="color: #666; font-size: 14px;">This token expires in <strong>15 minutes</strong>.</p>
+        <p style="color: #666; font-size: 14px;">This link expires in <strong>15 minutes</strong>.</p>
         <p style="color: #999; font-size: 12px;">If you didn't request this reset, you can safely ignore this email. Your password will not change.</p>
     </div>
     """

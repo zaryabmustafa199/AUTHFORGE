@@ -2,20 +2,31 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { jwtDecode } from 'jwt-decode';
 import api from '../lib/api';
 
+interface Role {
+  id: number;
+  name: string;
+  permissions: string[] | null;
+}
+
 interface User {
   id: string;
   email: string;
+  username: string | null;
   full_name: string | null;
+  phone_number: string | null;
+  date_of_birth: string | null;
   role_id: number;
+  role: Role | null;
   is_verified: boolean;
   is_active: boolean;
+  created_at: string;
 }
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (access_token: string, refresh_token: string) => void;
+  login: (access_token: string, refresh_token: string) => Promise<void>;
   logout: () => Promise<void>;
   fetchProfile: () => Promise<void>;
 }
@@ -32,7 +43,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(response.data);
     } catch (error) {
       console.error('Failed to fetch profile', error);
-      // Logout happens if interceptor refresh fails
     }
   };
 
@@ -41,8 +51,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const token = localStorage.getItem('access_token');
       if (token) {
         try {
-          const decoded: any = jwtDecode(token);
-          // Let interceptor handle token expiry logic implicitly on request
+          jwtDecode(token); // validate structure
           await fetchProfile();
         } catch (error) {
           localStorage.removeItem('access_token');
@@ -52,14 +61,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       setIsLoading(false);
     };
-
     initializeAuth();
   }, []);
 
-  const login = (access_token: string, refresh_token: string) => {
+  const login = async (access_token: string, refresh_token: string) => {
     localStorage.setItem('access_token', access_token);
     localStorage.setItem('refresh_token', refresh_token);
-    fetchProfile();
+    await fetchProfile();
   };
 
   const logout = async () => {

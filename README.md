@@ -94,3 +94,16 @@ To stop the backend database and API services, run:
 docker-compose down
 ```
 To stop the frontend, simply press `Ctrl + C` in the terminal where `npm run dev` is running.
+
+## Visual Aesthetics
+
+AuthForge features a highly professional, pristine light-mode aesthetic starring our AuthForge Bodyguard lion:
+
+| Login Page | Sign Up Page |
+| :---: | :---: |
+| <img src="frontend/src/assets/login-bg.png" width="300"> | <img src="frontend/src/assets/signup-bg.png" width="300"> |
+
+| Verify Email | Dashboard Header |
+| :---: | :---: |
+| <img src="frontend/src/assets/verify-bg.png" width="300"> | <img src="frontend/src/assets/dashboard-bg.png" width="300"> |
+

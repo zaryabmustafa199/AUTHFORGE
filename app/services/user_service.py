@@ -1,14 +1,12 @@
 """
 User Service — Business logic for user profile management and admin operations.
-
-Handles profile viewing, profile updates, user listing (admin),
-and role changes (admin).
 """
+import re
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy import func
 
 from app.repositories.user_repo import UserRepository
@@ -40,13 +38,27 @@ class UserService:
     ) -> User:
         """
         Updates the authenticated user's own profile.
-        Only allows changing full_name (limited fields for self-service).
+        Handles full_name, username (with uniqueness check), and phone_number.
         """
         changes = {}
 
         if update_data.full_name is not None:
             changes["full_name"] = {"old": user.full_name, "new": update_data.full_name}
             user.full_name = update_data.full_name
+
+        if update_data.username is not None and update_data.username != user.username:
+            existing = await self.user_repo.get_by_username(update_data.username)
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Username already taken",
+                )
+            changes["username"] = {"old": user.username, "new": update_data.username}
+            user.username = update_data.username
+
+        if update_data.phone_number is not None:
+            changes["phone_number"] = {"old": user.phone_number, "new": update_data.phone_number}
+            user.phone_number = update_data.phone_number
 
         if not changes:
             raise HTTPException(
@@ -69,15 +81,8 @@ class UserService:
     # ------------------------------------------------------------------
     # Admin: List Users
     # ------------------------------------------------------------------
-    async def list_users(
-        self,
-        page: int = 1,
-        per_page: int = 20,
-    ) -> tuple[List[User], int]:
-        """
-        Returns a paginated list of all users with their roles.
-        Admin-only.
-        """
+    async def list_users(self, page: int = 1, per_page: int = 20) -> tuple[List[User], int]:
+        """Returns a paginated list of all users with their roles. Admin-only."""
         try:
             query = (
                 select(User)
@@ -127,7 +132,7 @@ class UserService:
         return user
 
     # ------------------------------------------------------------------
-    # Admin: Update User (Role, Active Status)
+    # Admin: Update User
     # ------------------------------------------------------------------
     async def admin_update_user(
         self,
@@ -136,23 +141,17 @@ class UserService:
         admin_user: User,
         ip_address: Optional[str] = None,
     ) -> User:
-        """
-        Admin-only: changes a user's role, active status, or verified status.
-        Logs every change to the audit trail.
-        """
+        """Admin-only: changes a user's role, active status, or verified status."""
         target_user = await self.get_user_by_id(target_user_id)
         changes = {}
 
-        # Prevent admin from demoting themselves
         if target_user.id == admin_user.id and update_data.role_id is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot change your own role",
             )
 
-        # Role change
         if update_data.role_id is not None:
-            # Validate role exists
             try:
                 role_result = await self.session.execute(
                     select(Role).where(Role.id == update_data.role_id)
@@ -175,12 +174,10 @@ class UserService:
             changes["role"] = {"old": old_role_name, "new": new_role.name}
             target_user.role_id = update_data.role_id
 
-        # Active status change
         if update_data.is_active is not None:
             changes["is_active"] = {"old": target_user.is_active, "new": update_data.is_active}
             target_user.is_active = update_data.is_active
 
-        # Verified status change
         if update_data.is_verified is not None:
             changes["is_verified"] = {"old": target_user.is_verified, "new": update_data.is_verified}
             target_user.is_verified = update_data.is_verified
@@ -193,7 +190,6 @@ class UserService:
 
         updated_user = await self.user_repo.update(target_user)
 
-        # Audit every change with full before/after context
         for field, diff in changes.items():
             action = ROLE_CHANGED if field == "role" else PROFILE_UPDATED
             await self.audit.log(

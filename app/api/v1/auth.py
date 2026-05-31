@@ -4,7 +4,7 @@ Email Verification, and Password Reset endpoints.
 
 Rate-limited where appropriate to prevent abuse.
 """
-from fastapi import APIRouter, Depends, status, Request, Body
+from fastapi import APIRouter, Depends, status, Request, Body, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
 
@@ -14,7 +14,8 @@ from app.schemas.auth import (
     SignupResponse, Token, VerifyEmailRequest,
     ForgotPasswordRequest, ResetPasswordRequest, MessageResponse,
 )
-from app.schemas.user import UserCreate
+from app.schemas.user import UserCreate, UsernameAvailabilityResponse
+from app.repositories.user_repo import UserRepository
 from app.services.auth_service import AuthService
 from app.models.user import User
 from app.middleware.rate_limiter import rate_limit
@@ -22,6 +23,22 @@ from app.config import settings
 from fastapi.security import OAuth2PasswordRequestForm
 
 router = APIRouter()
+
+
+@router.get("/check-username", response_model=UsernameAvailabilityResponse)
+async def check_username(
+    request: Request,
+    username: str = Query(..., min_length=3, max_length=50, description="Username to check"),
+    db: AsyncSession = Depends(get_db),
+    _rate=Depends(rate_limit("check_username", 20, 60)),
+):
+    """
+    Public endpoint — checks if a username is available.
+    Used for real-time validation on the signup form.
+    """
+    user_repo = UserRepository(db)
+    existing = await user_repo.get_by_username(username.lower())
+    return {"username": username.lower(), "available": existing is None}
 
 
 @router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
@@ -35,8 +52,8 @@ async def signup(
     """Register a new user account. Sends a verification OTP to the provided email."""
     auth_service = AuthService(db, redis)
     ip_address = request.client.host if request.client else None
-    user = await auth_service.signup(user_in, ip_address=ip_address)
-    return {"user": user}
+    await auth_service.signup(user_in, ip_address=ip_address)
+    return {"message": "User created successfully. Please verify your email."}
 
 
 @router.post("/login", response_model=Token)
@@ -89,6 +106,7 @@ async def verify_email(
     request_data: VerifyEmailRequest,
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
+    _rate=Depends(rate_limit("verify_email", 5, 60)),
 ):
     """Verify a user's email address with the 6-digit OTP sent during signup."""
     auth_service = AuthService(db, redis)

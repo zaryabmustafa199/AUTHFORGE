@@ -1,54 +1,77 @@
 import React from 'react';
-import { Link, Outlet } from 'react-router-dom';
-import { Shield, LogOut, User, Settings, Users } from 'lucide-react';
+import { Link, Outlet, useLocation } from 'react-router-dom';
+import { Shield, LogOut, LayoutDashboard, Settings, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+
+import logo from '../assets/logo.png';
 
 const Layout = () => {
   const { user, isAuthenticated, logout } = useAuth();
+  const location = useLocation();
+  const isAdmin = user?.role?.name === 'admin';
+
+  const isActive = (path: string) => location.pathname.startsWith(path);
 
   return (
-    <div className="flex-col min-h-screen" style={{ display: 'flex' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <nav className="navbar">
         <div className="container flex items-center justify-between">
           <Link to="/" className="nav-brand">
-            <Shield size={24} color="var(--accent-primary)" />
-            AuthForge
+            <img src={logo} alt="AuthForge Logo" style={{ height: '32px' }} />
+            <span>AuthForge</span>
           </Link>
-          
+
           <div className="nav-links">
             {isAuthenticated ? (
               <>
-                {user?.role_id === 3 && (
-                  <Link to="/admin" className="nav-link flex items-center gap-2">
-                    <Users size={18} /> Admin
+                {isAdmin && (
+                  <Link
+                    to="/admin"
+                    className={`nav-link ${isActive('/admin') ? 'active' : ''}`}
+                  >
+                    <Users size={15} />
+                    Admin
                   </Link>
                 )}
-                <Link to="/dashboard" className="nav-link flex items-center gap-2">
-                  <User size={18} /> Dashboard
+                <Link
+                  to="/dashboard"
+                  className={`nav-link ${isActive('/dashboard') ? 'active' : ''}`}
+                >
+                  <LayoutDashboard size={15} />
+                  Dashboard
                 </Link>
-                <Link to="/settings" className="nav-link flex items-center gap-2">
-                  <Settings size={18} /> Settings
+                <Link
+                  to="/settings"
+                  className={`nav-link ${isActive('/settings') ? 'active' : ''}`}
+                >
+                  <Settings size={15} />
+                  Settings
                 </Link>
-                <button onClick={logout} className="btn btn-secondary flex items-center gap-2">
-                  <LogOut size={16} /> Logout
+                <button onClick={logout} className="btn btn-ghost btn-sm" style={{ marginLeft: '4px' }}>
+                  <LogOut size={15} />
+                  Logout
                 </button>
               </>
             ) : (
               <>
-                <Link to="/login" className="nav-link">Login</Link>
-                <Link to="/signup" className="btn btn-primary">Sign Up</Link>
+                <Link to="/login" className="nav-link">Sign In</Link>
+                <Link to="/signup" className="btn btn-primary btn-sm">Get Started</Link>
               </>
             )}
           </div>
         </div>
       </nav>
 
-      <main className="container" style={{ padding: '40px 24px', flex: 1 }}>
-        <Outlet />
+      <main style={{ flex: 1, padding: '40px 0' }}>
+        <div className="container">
+          <Outlet />
+        </div>
       </main>
 
-      <footer style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-        <p>&copy; 2026 AuthForge. All rights reserved.</p>
+      <footer style={{ padding: '20px 0', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          © 2026 AuthForge · Production-Grade Identity Platform
+        </p>
       </footer>
     </div>
   );

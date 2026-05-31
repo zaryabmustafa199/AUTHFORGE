@@ -45,3 +45,9 @@ frontend/*.local
 # OS
 .DS_Store
 Thumbs.db
+
+# Additional ignores
+*.log
+celerybeat-schedule
+frontend/.env.local
+frontend/.env.*.local

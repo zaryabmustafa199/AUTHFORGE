@@ -12,8 +12,8 @@ from redis.asyncio import Redis
 
 from app.api.deps import get_db
 from app.redis import get_redis
-from app.schemas.auth import Token
 from app.services.oauth_service import OAuthService
+from app.config import settings
 
 router = APIRouter()
 
@@ -29,7 +29,7 @@ async def google_login():
     return RedirectResponse(url=auth_url)
 
 
-@router.get("/google/callback", response_model=Token)
+@router.get("/google/callback")
 async def google_callback(
     request: Request,
     code: str = Query(..., description="Authorization code from Google"),
@@ -44,4 +44,8 @@ async def google_callback(
     oauth_service = OAuthService(db, redis)
     device_info = request.headers.get("user-agent", "Unknown")
     ip_address = request.client.host if request.client else None
-    return await oauth_service.google_callback(code, device_info, ip_address)
+    
+    tokens = await oauth_service.google_callback(code, device_info, ip_address)
+    
+    redirect_url = f"{settings.FRONTEND_URL}/login?access_token={tokens['access_token']}&refresh_token={tokens['refresh_token']}"
+    return RedirectResponse(url=redirect_url)
