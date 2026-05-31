@@ -1,29 +1,112 @@
 # AuthForge Identity Platform
 
-AuthForge is a production-grade, highly secure authentication and identity management platform. It features a hardened backend built with **FastAPI** (Python) and a modern, pastel-themed frontend built with **React & Vite**.
+![AuthForge Logo](./frontend/public/logo.png)
 
-The system includes Role-Based Access Control (RBAC), Google OAuth 2.0 integration, brute-force protection, rate limiting, and comprehensive audit logging.
+AuthForge is a production-grade, highly secure authentication and identity management platform. It features a hardened backend built with **FastAPI** (Python) and a modern, minimalist split-screen frontend built with **React & Vite**.
 
----
+## 🎯 The Problem
+Building a secure, scalable authentication system from scratch is an immense hassle for developers. Implementing rate limiting, JWT rotation, background email verification, role-based access control, and OAuth is prone to security flaws and takes weeks of development time.
 
-## 🏗️ Architecture Stack
+## 💡 The Solution (Identity-as-a-Service)
+AuthForge solves this by providing a completely built, "drop-in" identity infrastructure. Whether you are building a new internal tool or launching a SaaS, AuthForge handles the heavy lifting of user identity, security, and session management right out of the box.
 
-### Backend
-*   **Framework:** FastAPI (Python 3.11+)
-*   **Database:** PostgreSQL (with SQLAlchemy ORM & asyncpg)
-*   **Caching & Rate Limiting:** Redis
-*   **Email:** MailHog (for local OTP development)
-*   **Security:** JWT (Stateless), Argon2 hashing, Authlib (OAuth)
-
-### Frontend
-*   **Framework:** React 18 + Vite + TypeScript
-*   **Styling:** Custom Vanilla CSS (Pastel Theme)
-*   **State & Routing:** Context API, React Router v6
-*   **API Client:** Axios (with automatic refresh token rotation)
+Key features include:
+*   **Role-Based Access Control (RBAC):** Three-tier roles (`user`, `moderator`, `admin`).
+*   **Google OAuth 2.0 Integration:** Seamless 3rd-party sign-ins.
+*   **Brute-Force Protection & Rate Limiting:** Powered by Redis sliding-window algorithms.
+*   **Background Tasks:** Celery-powered asynchronous email verification and password resets.
+*   **Immutable Audit Logging:** Permanent tracking of sensitive user actions for security compliance.
 
 ---
 
-## 🚀 Getting Started (How to Run)
+## 🏗️ Architecture
+
+The system follows a microservice-like architecture using robust, industry-standard technologies.
+
+```mermaid
+graph TD
+    Client[React + Vite Frontend]
+    
+    subgraph API Gateway
+        FastAPI[FastAPI Backend]
+    end
+
+    subgraph Data Layer
+        PostgreSQL[(PostgreSQL DB)]
+        Redis[(Redis Cache)]
+    end
+
+    subgraph Background Workers
+        CeleryWorker[Celery Worker]
+        MailHog[MailHog SMTP]
+    end
+
+    %% Connections
+    Client <-->|REST API / JWT| FastAPI
+    FastAPI <-->|SQLAlchemy ORM| PostgreSQL
+    FastAPI <-->|Rate Limiting / Sessions| Redis
+    FastAPI -.->|Queue Tasks| CeleryWorker
+    CeleryWorker -.->|Send Verification Emails| MailHog
+```
+
+---
+
+## 🔄 Authentication Flow
+
+Below is the standard authentication and token rotation flow that protects your application:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant React UI
+    participant FastAPI
+    participant PostgreSQL
+    participant Redis
+
+    User->>React UI: Enters Email & Password
+    React UI->>FastAPI: POST /auth/login
+    
+    FastAPI->>Redis: Check Rate Limits (max 5/min)
+    FastAPI->>PostgreSQL: Verify Hashed Password
+    FastAPI->>PostgreSQL: Write to Audit Logs
+    
+    FastAPI->>Redis: Store Session ID (Whitelist)
+    FastAPI-->>React UI: Returns Access Token (15m) & Refresh Token (7d)
+    
+    React UI->>React UI: Stores Access in Memory, Refresh in HttpOnly Cookie
+    
+    Note over User, Redis: Sometime later... Access Token expires
+    
+    React UI->>FastAPI: Makes an API call with expired token
+    FastAPI-->>React UI: 401 Unauthorized
+    
+    React UI->>FastAPI: POST /auth/refresh
+    FastAPI->>Redis: Validate Session & Refresh Token
+    FastAPI-->>React UI: Returns New Access Token
+    
+    React UI->>FastAPI: Retries original API call
+    FastAPI-->>React UI: 200 OK
+```
+
+---
+
+## 📸 Screenshots
+
+AuthForge features a highly professional, pristine light-mode aesthetic starring our "AuthForge Bodyguard" lion mascot:
+
+| Login Page | Sign Up Page |
+| :---: | :---: |
+| <img src="frontend/public/screenshots/login.png" width="400"> | <img src="frontend/public/screenshots/signup.png" width="400"> |
+
+| Verify Email | Dashboard Header |
+| :---: | :---: |
+| <img src="frontend/public/screenshots/verify.png" width="400"> | <img src="frontend/src/assets/dashboard-bg.png" width="400"> |
+
+*(Note: The actual deployed platform features a seamless split-screen experience!)*
+
+---
+
+## 🚀 Boot-Up Guide (How to Run Locally)
 
 To run the full stack locally, you need two terminal windows: one for the Dockerized backend and one for the React frontend.
 
@@ -32,15 +115,16 @@ Ensure you have Docker and Docker Compose installed. The backend runs entirely i
 
 1.  **Clone the repository and navigate to the project root:**
     ```bash
-    cd AuthForge
+    git clone https://github.com/yourusername/AUTHFORGE.git
+    cd AUTHFORGE
     ```
 2.  **Set up environment variables:**
-    Copy the example `.env` file (if not already done) and configure any secrets (like Google OAuth keys):
+    Copy the `.env.example` file to `.env` and configure any secrets:
     ```bash
     cp .env.example .env
     ```
 3.  **Start the services:**
-    This command will build and start FastAPI, PostgreSQL, Redis, and MailHog in the background.
+    This command will build and start FastAPI, PostgreSQL, Redis, Celery, and MailHog in the background.
     ```bash
     docker-compose up -d --build
     ```
@@ -49,13 +133,13 @@ Ensure you have Docker and Docker Compose installed. The backend runs entirely i
     *   **MailHog (View sent emails/OTPs):** http://localhost:8025
 
 ### 2. Run the Frontend (React / Vite)
-The frontend is run locally using Node.js and NPM.
+The frontend requires Node.js (v18+) and npm.
 
 1.  **Navigate to the frontend directory:**
     ```bash
     cd frontend
     ```
-2.  **Install dependencies (first time only):**
+2.  **Install dependencies:**
     ```bash
     npm install
     ```
@@ -64,27 +148,7 @@ The frontend is run locally using Node.js and NPM.
     npm run dev
     ```
 4.  **Access the web app:**
-    *   Open your browser and go to: **http://localhost:5173**
-
----
-
-## 🛡️ Security Features
-
-*   **Token Rotation:** Short-lived Access Tokens (15m) and long-lived Refresh Tokens (7d). The frontend automatically intercepts `401 Unauthorized` responses and rotates tokens seamlessly.
-*   **Rate Limiting:** IP-based sliding window rate limiter (e.g., max 5 login attempts per minute).
-*   **Brute-Force Lockout:** Accounts are temporarily locked (HTTP 423) for 15 minutes after 5 consecutive failed login attempts.
-*   **Audit Logging:** An immutable audit trail logs every sensitive action (login, signup, role changes, locks) with IPs and timestamps.
-*   **Role-Based Access Control:** Three-tier roles (`user`, `moderator`, `admin`). Admin routes are strictly protected on both backend and frontend.
-
----
-
-## 🧪 Running Tests
-The backend features a robust `pytest` suite ensuring everything works as expected.
-
-To run the tests inside the Docker container:
-```bash
-docker-compose exec app pytest -v
-```
+    *   Open your browser and go to: **http://localhost:5173** (or the port specified in your terminal).
 
 ---
 
@@ -94,16 +158,3 @@ To stop the backend database and API services, run:
 docker-compose down
 ```
 To stop the frontend, simply press `Ctrl + C` in the terminal where `npm run dev` is running.
-
-## Visual Aesthetics
-
-AuthForge features a highly professional, pristine light-mode aesthetic starring our AuthForge Bodyguard lion:
-
-| Login Page | Sign Up Page |
-| :---: | :---: |
-| <img src="frontend/src/assets/login-bg.png" width="300"> | <img src="frontend/src/assets/signup-bg.png" width="300"> |
-
-| Verify Email | Dashboard Header |
-| :---: | :---: |
-| <img src="frontend/src/assets/verify-bg.png" width="300"> | <img src="frontend/src/assets/dashboard-bg.png" width="300"> |
-
